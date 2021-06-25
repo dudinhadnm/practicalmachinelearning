@@ -1,0 +1,152 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "dudinhadnm"
+date: "6/25/2021"
+output: html_document
+---
+
+# Practical Machine Learning - Course Project
+
+Johns Hopkins University - Data Science Specialization
+
+## Executive Summary
+
+This study is part of the course project for the Practical Machine Learning course, part of the Data Science Specialization 
+This report is a course project within the Practical Machine Learning Course on the Data Science Specialization by Johns Hopkins University on Coursera. Here we investigate the use of machine learning models to predict the manner in which exercises were performed by participants (classe), based on data from accelerometers in devices such as Jawbone Up, Nike FuelBand, and Fitbit (http://groupware.les.inf.puc-rio.br/har). Cross Validation was used, and the training data was separated into training and validation. The models were tested in the validation set, and the best one (highest accuracy) was used to predict 20 observations in the test set.
+
+## Data loading and cleaning
+
+Setting the seed to ensure reproducibility, loading the needed packages, and downloading the data from their sources:
+
+```{r seedcaret}
+set.seed(194637)
+library(caret)
+```
+```{r downloadfile, cache=TRUE}
+## loading data
+if(!file.exists("./data")) {
+  dir.create("./data")
+}
+trainingURL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+download.file(trainingURL, destfile = "./data/training.csv", method = "curl")
+training <- read.csv("./data/training.csv")
+testingURL <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+download.file(testingURL, destfile = "./data/testing.csv", method = "curl")
+testing <- read.csv("./data/testing.csv")
+```
+
+## Exploratory analysis
+
+```{r exploratory}
+str(training)
+null_count <-sapply(training, function(y) sum(length(which(y==""|is.na(y)))))
+table(null_count)
+```
+
+Looking at the structure of the data, we see that many variables have empty values or NA values. To identify these variables, we chose those that have over 90% of their observations as empty ("") or NA. We also remove the variables that do not have data from the accelerometers, such as the 7 first columns, which have a sequential identifier, the subject's name and time stamps, which would not aid in predicting the classes. We then turned the outcome variable "classe" into a factor variable.
+
+```{r removecolumn}
+noInfor <- which(colSums(training=="" | is.na(training))>0.9*dim(training)[1])
+
+trainingClean <- training[,-noInfor]
+testingClean <- testing[,-noInfor]
+trainingClean <- trainingClean[,-c(1:7)]
+testingClean <- testingClean[,-c(1:7)]
+
+trainingClean$classe <- as.factor(trainingClean$classe)
+```
+
+We now take 30% of the observations out, to create a validation dataset. The remainder 70% remains as a training set.
+
+```{r divide}
+inTrain <- createDataPartition(trainingClean$classe, p = 0.7, list = FALSE)
+trainData <- trainingClean[inTrain,]
+validationData <- trainingClean[-inTrain,]
+```
+
+
+## Predictive models
+
+The following algorithms will be used to train our model:
+
+* Decision tree
+
+* Linear discriminant analysis
+
+* Gradient boosting machine
+
+#### Cross-Validation
+
+In order to improve efficiency of the models, and try to prevent an extensive effect of overfitting, we used cross-validation, with k = 10. The trainControl function was used as is below:
+
+```{r traincontrol}
+train_control = trainControl(method="cv", number=10, savePredictions = TRUE)
+```
+
+
+### Decision Tree:
+
+```{r traindecisiontree, cache=TRUE}
+tree_model<- train(classe~., data=trainData, trControl=train_control, method="rpart")
+```
+
+We test the validity of this model with our validation dataset, to get an estimate of the out of sample accuracy and error.
+
+```{r testdecisiontree, cache=TRUE}
+tree_predict <- predict(tree_model,newdata=validationData)
+tree_confusion <- confusionMatrix(validationData$classe,tree_predict)
+## get accuracy
+tree_accuracy <- tree_confusion$overall[1]
+```
+
+We see that the accuracy was `r tree_accuracy` and the expected out of sample error is between `r 1-tree_confusion$overall[4]` and `r 1-tree_confusion$overall[3]` (95% confidence)
+
+### Linear discriminant:
+
+```{r trainlda, cache=TRUE}
+lda_model <- train(classe~., data=trainData, trControl=train_control, method="lda")
+```
+
+Using the validation dataset, we get an estimate of the out of sample accuracy and error.
+
+```{r testlda, cache=TRUE}
+lda_predict <- predict(lda_model,newdata=validationData)
+lda_confusion <- confusionMatrix(validationData$classe,lda_predict)
+lda_accuracy <- lda_confusion$overall[1]
+```
+
+We see that the accuracy was `r lda_accuracy` and the expected out of sample error is between `r 1-lda_confusion$overall[4]` and `r 1-lda_confusion$overall[3]` (95% confidence)
+
+### Gradient boosting machine:
+
+```{r traingbm, cache=TRUE, results='hide'}
+gbm_model <- train(classe~., data=trainData, trControl=train_control, method="gbm")
+```
+
+Using the validation dataset to test our model in new data, we get an estimate of the out of sample accuracy and error.
+
+```{r testgbm, cache=TRUE}
+gbm_predict <- predict(gbm_model,newdata=validationData)
+gbm_confusion <- confusionMatrix(validationData$classe,gbm_predict)
+gbm_accuracy <- gbm_confusion$overall[1]
+```
+
+We see that the accuracy was `r gbm_accuracy` and the expected out of sample error is between `r 1-gbm_confusion$overall[4]` and `r 1-gbm_confusion$overall[3]` (95% confidence)
+
+## Model selection
+
+```{r accuracy}
+accuracies <- rbind(tree_accuracy,lda_accuracy,gbm_accuracy) 
+accuracies
+```
+
+
+Based on the validation dataset, the model using Gradient boosting machine had the best accuracy, and, thus, will be used to predict the test set:
+
+### Test set predictions:
+
+```{r testpredict}
+test_predict <- predict(gbm_model,newdata=testingClean)
+test_predict
+```
+
